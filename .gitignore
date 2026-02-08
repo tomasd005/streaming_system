@@ -7,3 +7,4 @@ programa-testes
 *.d
 dataset/
 input.txt
+input_q*.txt
