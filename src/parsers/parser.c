@@ -6,15 +6,60 @@
 
 #define MAX_COLS 64
 
-static int split_simple(char *line, char sep, char **cols, int max_cols) {
+static int split_csv_quoted_inplace(char *line, char sep, char **cols, int max_cols) {
     int n = 0;
     char *p = line;
+    if (!line || !cols || max_cols <= 0) return -1;
+
     while (n < max_cols) {
-        cols[n++] = p;
-        char *s = strchr(p, sep);
-        if (!s) break;
-        *s = '\0';
-        p = s + 1;
+        char *start = p;
+
+        if (*p == '"') {
+            char *r = p + 1;
+            char *w = p;
+            int closed = 0;
+
+            while (*r) {
+                if (*r == '"') {
+                    if (r[1] == '"') {
+                        *w++ = '"';
+                        r += 2;
+                        continue;
+                    }
+                    closed = 1;
+                    r++;
+                    break;
+                }
+                *w++ = *r++;
+            }
+            if (!closed) return -1;
+
+            while (*r == ' ' || *r == '\t') r++;
+            while (*r && *r != sep) {
+                if (*r != ' ' && *r != '\t') return -1;
+                r++;
+            }
+
+            *w = '\0';
+            cols[n++] = start;
+            if (!*r) break;
+
+            p = r + 1;
+            if (*p == '\0' && n < max_cols) cols[n++] = p;
+            continue;
+        }
+
+        while (*p && *p != sep) p++;
+        if (*p == sep) {
+            *p = '\0';
+            cols[n++] = start;
+            p++;
+            if (*p == '\0' && n < max_cols) cols[n++] = p;
+            continue;
+        }
+
+        cols[n++] = start;
+        break;
     }
     return n;
 }
@@ -60,7 +105,6 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
     processed = 0;
 
     while ((len = getline(&line, &cap, f)) != -1) {
-        char *raw_copy;
         char *work;
         char *cols[MAX_COLS] = {0};
         int ncols;
@@ -75,19 +119,16 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
             continue;
         }
 
-        raw_copy = strdup(line);
         work = strdup(line);
-        if (!raw_copy || !work) {
-            free(raw_copy);
+        if (!work) {
             free(work);
             continue;
         }
 
-        ncols = split_simple(work, separador, cols, MAX_COLS);
-        ok = cb(cols, ncols, raw_copy, ctx);
-        if (!ok && ferr) fprintf(ferr, "%s\n", raw_copy);
+        ncols = split_csv_quoted_inplace(work, separador, cols, MAX_COLS);
+        ok = (ncols > 0) ? cb(cols, ncols, line, ctx) : false;
+        if (!ok && ferr) fprintf(ferr, "%s\n", line);
 
-        free(raw_copy);
         free(work);
         processed++;
     }

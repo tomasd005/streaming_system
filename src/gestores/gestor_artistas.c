@@ -6,6 +6,7 @@
 
 #include <glib.h>
 #include <stdlib.h>
+#include <string.h>
 
 struct gestor_artistas { GHashTable *by_id; };
 typedef struct { gestor_artistas_t *g; } load_ctx_artistas_t;
@@ -14,6 +15,7 @@ static bool on_row(char **c, int n, const char *raw_line, void *ctxp) {
     load_ctx_artistas_t *ctx = ctxp;
     GPtrArray *consts;
     double recipe;
+    char *endptr;
     artista_t *a;
     char *type_norm;
     (void)raw_line;
@@ -29,7 +31,19 @@ static bool on_row(char **c, int n, const char *raw_line, void *ctxp) {
         return false;
     }
 
-    recipe = g_ascii_strtod(c[3], NULL);
+    endptr = NULL;
+    recipe = g_ascii_strtod(c[3], &endptr);
+    if (endptr == c[3] || !endptr || *endptr != '\0' || recipe < 0.0) {
+        g_ptr_array_free(consts, TRUE);
+        g_free(type_norm);
+        return false;
+    }
+    if (strcmp(type_norm, "individual") == 0 && consts->len > 0) {
+        g_ptr_array_free(consts, TRUE);
+        g_free(type_norm);
+        return false;
+    }
+
     a = artista_criar(c[0], c[1], c[5], type_norm, recipe, consts);
     g_free(type_norm);
     if (!a) return false;

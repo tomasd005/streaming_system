@@ -46,16 +46,19 @@ static void add_index(gestor_historico_t *g, const historico_t *h) {
 
 static bool on_row(char **c, int n, const char *raw_line, void *ctxp) {
     load_ctx_hist_t *ctx = ctxp;
+    const musica_t *m;
     historico_t *h;
     int duration_seconds;
     (void)raw_line;
 
     if (!historico_validar_sintatica(c, n)) return false;
     if (!gestor_users_obter(ctx->users, c[1])) return false;
-    if (!gestor_musicas_obter(ctx->musicas, c[2])) return false;
+    m = gestor_musicas_obter(ctx->musicas, c[2]);
+    if (!m) return false;
 
     duration_seconds = utils_duration_to_seconds(c[4]);
     if (duration_seconds < 0) return false;
+    if (duration_seconds > musica_duration_seconds(m)) return false;
 
     h = historico_criar(c[0], c[1], c[2], c[3], duration_seconds, c[5]);
     if (!h) return false;
