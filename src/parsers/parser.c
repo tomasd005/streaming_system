@@ -1,10 +1,30 @@
 #include "parsers/parser.h"
 
+#include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define MAX_COLS 64
+#define PARSE_BATCH_SIZE 2048
+#define PARSE_MAX_THREADS 16
+
+typedef struct {
+    char *raw;
+    char *work;
+    char *cols[MAX_COLS];
+    int ncols;
+    bool parse_ok;
+} parse_job_t;
+
+typedef struct {
+    parse_job_t *jobs;
+    int count;
+    int tid;
+    int threads;
+    char sep;
+} parse_worker_args_t;
 
 static int split_csv_quoted_inplace(char *line, char sep, char **cols, int max_cols) {
     int n = 0;
@@ -64,6 +84,99 @@ static int split_csv_quoted_inplace(char *line, char sep, char **cols, int max_c
     return n;
 }
 
+static void parse_job_run(parse_job_t *job, char sep) {
+    if (!job || !job->raw) return;
+    job->work = strdup(job->raw);
+    if (!job->work) return;
+
+    job->ncols = split_csv_quoted_inplace(job->work, sep, job->cols, MAX_COLS);
+    job->parse_ok = (job->ncols > 0);
+}
+
+static void *parse_worker_run(void *arg) {
+    parse_worker_args_t *a = (parse_worker_args_t *)arg;
+    int i;
+
+    if (!a || !a->jobs || a->count <= 0 || a->threads <= 0) return NULL;
+
+    for (i = a->tid; i < a->count; i += a->threads) {
+        parse_job_run(&a->jobs[i], a->sep);
+    }
+    return NULL;
+}
+
+static int parse_threads_from_env(void) {
+    const char *s = getenv("LI3_PARSE_THREADS");
+    char *end = NULL;
+    long v;
+
+    if (!s || *s == '\0') return 1;
+    v = strtol(s, &end, 10);
+    if (end == s || *end != '\0') return 1;
+    if (v < 1) return 1;
+    if (v > PARSE_MAX_THREADS) return PARSE_MAX_THREADS;
+    return (int)v;
+}
+
+static void trim_eol(char *line, ssize_t *len) {
+    if (!line || !len || *len <= 0) return;
+    if (*len > 0 && (line[*len - 1] == '\n' || line[*len - 1] == '\r')) line[--(*len)] = '\0';
+    if (*len > 0 && line[*len - 1] == '\r') line[--(*len)] = '\0';
+}
+
+static int process_batch(parse_job_t *jobs, int count, int threads, char sep,
+                         parser_row_validate_cb cb, void *ctx, FILE *ferr) {
+    int i;
+    int processed = 0;
+
+    if (!jobs || count <= 0 || !cb) return 0;
+
+    if (threads > 1 && count >= threads) {
+        pthread_t tids[PARSE_MAX_THREADS];
+        parse_worker_args_t args[PARSE_MAX_THREADS];
+        int t;
+        int created = 0;
+
+        if (threads > PARSE_MAX_THREADS) threads = PARSE_MAX_THREADS;
+
+        for (t = 0; t < threads; t++) {
+            args[t].jobs = jobs;
+            args[t].count = count;
+            args[t].tid = t;
+            args[t].threads = threads;
+            args[t].sep = sep;
+            if (pthread_create(&tids[t], NULL, parse_worker_run, &args[t]) == 0) {
+                created++;
+            } else {
+                break;
+            }
+        }
+        for (t = 0; t < created; t++) {
+            pthread_join(tids[t], NULL);
+        }
+
+        if (created != threads) {
+            for (i = 0; i < count; i++) {
+                if (!jobs[i].work && jobs[i].raw) parse_job_run(&jobs[i], sep);
+            }
+        }
+    } else {
+        for (i = 0; i < count; i++) parse_job_run(&jobs[i], sep);
+    }
+
+    for (i = 0; i < count; i++) {
+        bool ok = false;
+        if (jobs[i].parse_ok) ok = cb(jobs[i].cols, jobs[i].ncols, jobs[i].raw, ctx);
+        if (!ok && ferr && jobs[i].raw) fprintf(ferr, "%s\n", jobs[i].raw);
+        free(jobs[i].work);
+        free(jobs[i].raw);
+        jobs[i].work = NULL;
+        jobs[i].raw = NULL;
+        processed++;
+    }
+    return processed;
+}
+
 static void build_errors_path(const char *input_csv, char *out, size_t out_sz) {
     const char *base = strrchr(input_csv, '/');
     char name[256];
@@ -90,6 +203,9 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
     ssize_t len;
     int line_no;
     int processed;
+    int parse_threads;
+    parse_job_t batch[PARSE_BATCH_SIZE];
+    int batch_count;
 
     if (!ficheiro_csv || !cb) return -1;
 
@@ -103,15 +219,11 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
     cap = 0;
     line_no = 0;
     processed = 0;
+    parse_threads = parse_threads_from_env();
+    batch_count = 0;
 
     while ((len = getline(&line, &cap, f)) != -1) {
-        char *work;
-        char *cols[MAX_COLS] = {0};
-        int ncols;
-        bool ok;
-
-        if (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = '\0';
-        if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
+        trim_eol(line, &len);
 
         line_no++;
         if (line_no == 1) {
@@ -119,18 +231,24 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
             continue;
         }
 
-        work = strdup(line);
-        if (!work) {
-            free(work);
-            continue;
+        if (batch_count == PARSE_BATCH_SIZE) {
+            processed += process_batch(batch, batch_count, parse_threads, separador, cb, ctx, ferr);
+            batch_count = 0;
         }
 
-        ncols = split_csv_quoted_inplace(work, separador, cols, MAX_COLS);
-        ok = (ncols > 0) ? cb(cols, ncols, line, ctx) : false;
-        if (!ok && ferr) fprintf(ferr, "%s\n", line);
+        batch[batch_count].raw = strdup(line);
+        batch[batch_count].work = NULL;
+        batch[batch_count].ncols = 0;
+        batch[batch_count].parse_ok = false;
+        if (!batch[batch_count].raw) {
+            if (ferr) fprintf(ferr, "%s\n", line);
+            continue;
+        }
+        batch_count++;
+    }
 
-        free(work);
-        processed++;
+    if (batch_count > 0) {
+        processed += process_batch(batch, batch_count, parse_threads, separador, cb, ctx, ferr);
     }
 
     free(line);

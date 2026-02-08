@@ -22,6 +22,7 @@ typedef struct {
     double query_time_s;
     double total_time_s;
     double memory_mb;
+    int parse_threads;
     int first_failed_cmd;
     int first_failed_line;
     char first_failed_reason[512];
@@ -29,6 +30,17 @@ typedef struct {
 
 static double elapsed_s(struct timespec a, struct timespec b) {
     return (double)(b.tv_sec - a.tv_sec) + (double)(b.tv_nsec - a.tv_nsec) / 1e9;
+}
+
+static int parse_threads_from_env(void) {
+    const char *s = getenv("LI3_PARSE_THREADS");
+    char *end = NULL;
+    long v;
+    if (!s || *s == '\0') return 1;
+    v = strtol(s, &end, 10);
+    if (end == s || *end != '\0' || v < 1) return 1;
+    if (v > 16) v = 16;
+    return (int)v;
 }
 
 static int query_id_from_command(const char *line) {
@@ -116,6 +128,7 @@ static void benchmark_write_json(const benchmark_stats_t *s) {
     fprintf(f, "  \"timings\": {\"load_s\": %.6f, \"queries_s\": %.6f, \"total_s\": %.6f},\n",
             s->load_time_s, s->query_time_s, s->total_time_s);
     fprintf(f, "  \"memory_mb\": %.3f,\n", s->memory_mb);
+    fprintf(f, "  \"parse_threads\": %d,\n", s->parse_threads);
     fprintf(f, "  \"queries\": {\n");
     for (q = 1; q <= 6; q++) {
         double avg = s->per_query_count[q] ? (s->per_query_time[q] / s->per_query_count[q]) : 0.0;
@@ -147,6 +160,7 @@ int gestor_teste_executar(const char *dataset_path, const char *input_file, cons
 
     gp = gestor_programa_criar();
     if (!gp) return 1;
+    st.parse_threads = parse_threads_from_env();
 
     fin = fopen(input_file, "r");
     if (!fin) {
@@ -229,6 +243,7 @@ int gestor_teste_executar(const char *dataset_path, const char *input_file, cons
     printf("Tempo queries: %.3f s\n", st.query_time_s);
     printf("Tempo total: %.3f s\n", st.total_time_s);
     printf("Memoria utilizada: %.1f MB\n", st.memory_mb);
+    printf("Parse threads: %d\n", st.parse_threads);
     printf("Comandos: %u | OK: %u | FAIL: %u\n", st.total_cmds, st.ok_cmds, st.fail_cmds);
 
     {
