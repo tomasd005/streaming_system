@@ -5,3 +5,5 @@ programa-interativo
 programa-testes
 *.o
 *.d
+dataset/
+input.txt
