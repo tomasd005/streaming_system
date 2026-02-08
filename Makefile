@@ -67,6 +67,24 @@ $(OBJDIR)/%.o: %.c
 -include $(OBJ_COMMON:.o=.d) $(OBJ_PRINCIPAL:.o=.d) $(OBJ_INTERATIVO:.o=.d) $(OBJ_TESTES:.o=.d)
 
 clean:
-	rm -rf build programa-principal programa-interativo programa-testes resultados/*.txt
+	rm -rf build programa-principal programa-interativo programa-testes resultados/*.txt resultados/*.csv resultados/*.json
 
-.PHONY: all clean
+DATASET ?= dataset
+INPUT ?= input.txt
+EXPECTED ?=
+
+benchmark: programa-testes
+	@if [ -z "$(EXPECTED)" ]; then \
+		echo "Uso: make benchmark EXPECTED=<pasta_resultados_esperados> [DATASET=...] [INPUT=...]"; \
+		exit 1; \
+	fi
+	./programa-testes $(DATASET) $(INPUT) $(EXPECTED)
+
+autotune: programa-testes
+	@if [ -z "$(EXPECTED)" ]; then \
+		echo "Uso: make autotune EXPECTED=<pasta_resultados_esperados> [DATASET=...] [INPUT=...]"; \
+		exit 1; \
+	fi
+	LI3_AUTOTUNE_PARSE=1 ./programa-testes $(DATASET) $(INPUT) $(EXPECTED)
+
+.PHONY: all clean benchmark autotune

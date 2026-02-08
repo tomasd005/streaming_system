@@ -7,7 +7,8 @@
 #include <string.h>
 
 #define MAX_COLS 64
-#define PARSE_BATCH_SIZE 2048
+#define PARSE_BATCH_DEFAULT 2048
+#define PARSE_BATCH_MAX 65536
 #define PARSE_MAX_THREADS 16
 
 typedef struct {
@@ -118,6 +119,19 @@ static int parse_threads_from_env(void) {
     return (int)v;
 }
 
+static int parse_batch_from_env(void) {
+    const char *s = getenv("LI3_PARSE_BATCH");
+    char *end = NULL;
+    long v;
+
+    if (!s || *s == '\0') return PARSE_BATCH_DEFAULT;
+    v = strtol(s, &end, 10);
+    if (end == s || *end != '\0') return PARSE_BATCH_DEFAULT;
+    if (v < 32) return 32;
+    if (v > PARSE_BATCH_MAX) return PARSE_BATCH_MAX;
+    return (int)v;
+}
+
 static void trim_eol(char *line, ssize_t *len) {
     if (!line || !len || *len <= 0) return;
     if (*len > 0 && (line[*len - 1] == '\n' || line[*len - 1] == '\r')) line[--(*len)] = '\0';
@@ -204,7 +218,8 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
     int line_no;
     int processed;
     int parse_threads;
-    parse_job_t batch[PARSE_BATCH_SIZE];
+    parse_job_t *batch;
+    int batch_cap;
     int batch_count;
 
     if (!ficheiro_csv || !cb) return -1;
@@ -220,6 +235,14 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
     line_no = 0;
     processed = 0;
     parse_threads = parse_threads_from_env();
+    batch_cap = parse_batch_from_env();
+    batch = calloc((size_t)batch_cap, sizeof(*batch));
+    if (!batch) {
+        free(line);
+        if (ferr) fclose(ferr);
+        fclose(f);
+        return -1;
+    }
     batch_count = 0;
 
     while ((len = getline(&line, &cap, f)) != -1) {
@@ -231,7 +254,7 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
             continue;
         }
 
-        if (batch_count == PARSE_BATCH_SIZE) {
+        if (batch_count == batch_cap) {
             processed += process_batch(batch, batch_count, parse_threads, separador, cb, ctx, ferr);
             batch_count = 0;
         }
@@ -251,6 +274,7 @@ int parser_csv_stream_with_errors(const char *ficheiro_csv, char separador,
         processed += process_batch(batch, batch_count, parse_threads, separador, cb, ctx, ferr);
     }
 
+    free(batch);
     free(line);
     if (ferr) fclose(ferr);
     fclose(f);
