@@ -1,0 +1,7 @@
+build/
+resultados/*.txt
+programa-principal
+programa-interativo
+programa-testes
+*.o
+*.d
