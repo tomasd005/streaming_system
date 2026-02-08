@@ -88,3 +88,46 @@ int utils_age_on_2024_09_09(const char *birth_date) {
     if (age < 0) age = 0;
     return age;
 }
+
+bool utils_parse_date_ymd(const char *s, int *y, int *m, int *d) {
+    int yy, mm, dd;
+    if (!s) return false;
+    if (sscanf(s, "%4d/%2d/%2d", &yy, &mm, &dd) != 3) return false;
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return false;
+    if (y) *y = yy;
+    if (m) *m = mm;
+    if (d) *d = dd;
+    return true;
+}
+
+bool utils_parse_datetime(const char *s, int *y, int *m, int *d, int *hh, int *mm, int *ss) {
+    int yy, mo, dd, h, mi, se;
+    if (!s) return false;
+    if (sscanf(s, "%4d/%2d/%2d %2d:%2d:%2d", &yy, &mo, &dd, &h, &mi, &se) != 6) return false;
+    if (!utils_parse_date_ymd(s, NULL, NULL, NULL)) return false;
+    if (h < 0 || h > 23 || mi < 0 || mi > 59 || se < 0 || se > 59) return false;
+    if (y) *y = yy;
+    if (m) *m = mo;
+    if (d) *d = dd;
+    if (hh) *hh = h;
+    if (mm) *mm = mi;
+    if (ss) *ss = se;
+    return true;
+}
+
+int utils_days_from_civil(int y, int m, int d) {
+    y -= (m <= 2);
+    {
+        const int era = (y >= 0 ? y : y - 399) / 400;
+        const unsigned yoe = (unsigned)(y - era * 400);
+        const unsigned doy = (153u * (unsigned)(m + (m > 2 ? -3 : 9)) + 2u) / 5u + (unsigned)d - 1u;
+        const unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+        return era * 146097 + (int)doe - 719468;
+    }
+}
+
+int utils_weekday_sun0(int day_ordinal) {
+    int w = (day_ordinal + 4) % 7;
+    if (w < 0) w += 7;
+    return w;
+}

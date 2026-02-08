@@ -15,5 +15,8 @@ void gestor_historico_carregar_com_validacao(gestor_historico_t *g, const char *
                                              const gestor_musicas_t *musicas);
 unsigned int gestor_historico_total(const gestor_historico_t *g);
 void gestor_historico_para_cada(const gestor_historico_t *g, gestor_historico_iter_cb cb, void *ctx);
+const GPtrArray *gestor_historico_obter_por_user(const gestor_historico_t *g, const char *user_id);
+const GPtrArray *gestor_historico_obter_por_user_ano(const gestor_historico_t *g,
+                                                     const char *user_id, int year);
 
 #endif

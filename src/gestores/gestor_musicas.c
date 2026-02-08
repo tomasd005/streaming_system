@@ -23,32 +23,40 @@ static gboolean list_artists_valid(const GPtrArray *ids, const gestor_artistas_t
     return TRUE;
 }
 
-static void on_row(char **c, int n, void *ctxp) {
+static bool on_row(char **c, int n, const char *raw_line, void *ctxp) {
     load_ctx_musicas_t *ctx = ctxp;
     GPtrArray *artists;
     int duration_seconds;
     musica_t *m;
+    (void)raw_line;
 
-    if (!musica_validar_sintatica(c, n)) return;
+    if (!musica_validar_sintatica(c, n)) return false;
 
-    if (!gestor_albuns_obter(ctx->albuns, c[3])) return;
+    if (!gestor_albuns_obter(ctx->albuns, c[3])) return false;
 
     artists = utils_parse_list_ids(c[2]);
-    if (!artists) return;
+    if (!artists) return false;
     if (!list_artists_valid(artists, ctx->artistas)) {
         g_ptr_array_free(artists, TRUE);
-        return;
+        return false;
     }
 
     duration_seconds = utils_duration_to_seconds(c[4]);
     if (duration_seconds < 0) {
         g_ptr_array_free(artists, TRUE);
-        return;
+        return false;
     }
 
     m = musica_criar(c[0], c[1], artists, c[3], c[5], c[6], duration_seconds);
-    if (!m) return;
+    if (!m) return false;
+
+    if (g_hash_table_contains(ctx->g->by_id, musica_id(m))) {
+        musica_destruir(m);
+        return false;
+    }
+
     g_hash_table_insert(ctx->g->by_id, g_strdup(musica_id(m)), m);
+    return true;
 }
 
 gestor_musicas_t *gestor_musicas_criar(void) {
@@ -68,7 +76,7 @@ void gestor_musicas_carregar_com_validacao(gestor_musicas_t *g, const char *csv,
                                            const gestor_artistas_t *artistas,
                                            const gestor_albuns_t *albuns) {
     load_ctx_musicas_t ctx = { .g = g, .artistas = artistas, .albuns = albuns };
-    parser_csv_stream(csv, ';', 1, on_row, &ctx);
+    parser_csv_stream_with_errors(csv, ';', on_row, &ctx);
 }
 
 const musica_t *gestor_musicas_obter(const gestor_musicas_t *g, const char *id) {

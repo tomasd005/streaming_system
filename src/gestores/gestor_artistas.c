@@ -10,29 +10,37 @@
 struct gestor_artistas { GHashTable *by_id; };
 typedef struct { gestor_artistas_t *g; } load_ctx_artistas_t;
 
-static void on_row(char **c, int n, void *ctxp) {
+static bool on_row(char **c, int n, const char *raw_line, void *ctxp) {
     load_ctx_artistas_t *ctx = ctxp;
     GPtrArray *consts;
     double recipe;
     artista_t *a;
     char *type_norm;
+    (void)raw_line;
 
-    if (!artista_validar_sintatica(c, n)) return;
+    if (!artista_validar_sintatica(c, n)) return false;
 
     consts = utils_parse_list_ids(c[4]);
-    if (!consts) return;
+    if (!consts) return false;
 
     type_norm = g_ascii_strdown(c[6], -1);
     if (!type_norm) {
         g_ptr_array_free(consts, TRUE);
-        return;
+        return false;
     }
 
     recipe = g_ascii_strtod(c[3], NULL);
     a = artista_criar(c[0], c[1], c[5], type_norm, recipe, consts);
     g_free(type_norm);
-    if (!a) return;
+    if (!a) return false;
+
+    if (g_hash_table_contains(ctx->g->by_id, artista_id(a))) {
+        artista_destruir(a);
+        return false;
+    }
+
     g_hash_table_insert(ctx->g->by_id, g_strdup(artista_id(a)), a);
+    return true;
 }
 
 gestor_artistas_t *gestor_artistas_criar(void) {
@@ -50,7 +58,7 @@ void gestor_artistas_destruir(gestor_artistas_t *g) {
 
 void gestor_artistas_carregar(gestor_artistas_t *g, const char *csv) {
     load_ctx_artistas_t ctx = { .g = g };
-    parser_csv_stream(csv, ';', 1, on_row, &ctx);
+    parser_csv_stream_with_errors(csv, ';', on_row, &ctx);
 }
 
 const artista_t *gestor_artistas_obter(const gestor_artistas_t *g, const char *id) {

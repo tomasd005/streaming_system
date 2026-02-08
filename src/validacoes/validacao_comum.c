@@ -29,7 +29,9 @@ bool validacao_datetime(const char *s) {
     if (!s || strlen(s) != 19) return false;
     if (s[4] != '/' || s[7] != '/' || s[10] != ' ' || s[13] != ':' || s[16] != ':') return false;
     if (sscanf(s, "%4d/%2d/%2d %2d:%2d:%2d", &y, &m, &d, &hh, &mm, &ss) != 6) return false;
-    if (!validacao_data(s)) return false;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+    if (y > 2024) return false;
+    if (y == 2024 && (m > 9 || (m == 9 && d > 9))) return false;
     if (hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return false;
     return true;
 }

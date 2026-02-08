@@ -22,23 +22,31 @@ static gboolean liked_valid(const GPtrArray *ids, const gestor_musicas_t *musica
     return TRUE;
 }
 
-static void on_row(char **c, int n, void *ctxp) {
+static bool on_row(char **c, int n, const char *raw_line, void *ctxp) {
     load_ctx_users_t *ctx = ctxp;
     GPtrArray *liked;
     user_t *u;
+    (void)raw_line;
 
-    if (!user_validar_sintatica(c, n)) return;
+    if (!user_validar_sintatica(c, n)) return false;
 
     liked = utils_parse_list_ids(c[7]);
-    if (!liked) return;
+    if (!liked) return false;
     if (!liked_valid(liked, ctx->musicas)) {
         g_ptr_array_free(liked, TRUE);
-        return;
+        return false;
     }
 
     u = user_criar(c[0], c[1], c[2], c[3], c[4], c[5], c[6], liked);
-    if (!u) return;
+    if (!u) return false;
+
+    if (g_hash_table_contains(ctx->g->by_id, user_username(u))) {
+        user_destruir(u);
+        return false;
+    }
+
     g_hash_table_insert(ctx->g->by_id, g_strdup(user_username(u)), u);
+    return true;
 }
 
 gestor_users_t *gestor_users_criar(void) {
@@ -57,7 +65,7 @@ void gestor_users_destruir(gestor_users_t *g) {
 void gestor_users_carregar_com_validacao(gestor_users_t *g, const char *csv,
                                          const gestor_musicas_t *musicas) {
     load_ctx_users_t ctx = { .g = g, .musicas = musicas };
-    parser_csv_stream(csv, ';', 1, on_row, &ctx);
+    parser_csv_stream_with_errors(csv, ';', on_row, &ctx);
 }
 
 const user_t *gestor_users_obter(const gestor_users_t *g, const char *username) {

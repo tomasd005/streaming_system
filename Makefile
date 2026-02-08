@@ -5,7 +5,7 @@ CSTD := -std=c11
 WARN := -Wall -Wextra -Wpedantic
 CFLAGS := $(CSTD) $(WARN) -O2 -D_GNU_SOURCE
 CPPFLAGS := -Iinclude
-LDLIBS := $(shell $(PKG_CONFIG) --libs glib-2.0)
+LDLIBS := $(shell $(PKG_CONFIG) --libs glib-2.0) -lm
 CPPFLAGS += $(shell $(PKG_CONFIG) --cflags glib-2.0)
 
 OBJDIR := build/obj

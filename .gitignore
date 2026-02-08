@@ -1,5 +1,6 @@
 build/
 resultados/*.txt
+resultados/*.csv
 programa-principal
 programa-interativo
 programa-testes
@@ -8,3 +9,4 @@ programa-testes
 dataset/
 input.txt
 input_q*.txt
+input_*.txt

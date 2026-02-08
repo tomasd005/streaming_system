@@ -22,22 +22,30 @@ static gboolean list_artists_valid(const GPtrArray *ids, const gestor_artistas_t
     return TRUE;
 }
 
-static void on_row(char **c, int n, void *ctxp) {
+static bool on_row(char **c, int n, const char *raw_line, void *ctxp) {
     load_ctx_albuns_t *ctx = ctxp;
     GPtrArray *artists;
     album_t *a;
+    (void)raw_line;
 
-    if (!album_validar_sintatica(c, n)) return;
+    if (!album_validar_sintatica(c, n)) return false;
     artists = utils_parse_list_ids(c[2]);
-    if (!artists) return;
+    if (!artists) return false;
     if (!list_artists_valid(artists, ctx->artistas)) {
         g_ptr_array_free(artists, TRUE);
-        return;
+        return false;
     }
 
     a = album_criar(c[0], c[1], c[3], artists);
-    if (!a) return;
+    if (!a) return false;
+
+    if (g_hash_table_contains(ctx->g->by_id, album_id(a))) {
+        album_destruir(a);
+        return false;
+    }
+
     g_hash_table_insert(ctx->g->by_id, g_strdup(album_id(a)), a);
+    return true;
 }
 
 gestor_albuns_t *gestor_albuns_criar(void) {
@@ -56,7 +64,7 @@ void gestor_albuns_destruir(gestor_albuns_t *g) {
 void gestor_albuns_carregar_com_validacao(gestor_albuns_t *g, const char *csv,
                                           const gestor_artistas_t *artistas) {
     load_ctx_albuns_t ctx = { .g = g, .artistas = artistas };
-    parser_csv_stream(csv, ';', 1, on_row, &ctx);
+    parser_csv_stream_with_errors(csv, ';', on_row, &ctx);
 }
 
 const album_t *gestor_albuns_obter(const gestor_albuns_t *g, const char *id) {
